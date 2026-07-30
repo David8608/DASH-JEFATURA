@@ -6,10 +6,10 @@
 <title>Torre de Control Operativa · Gerencia Nacional de Operaciones</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 <style>
 /* =========================================================
    TORRE DE CONTROL OPERATIVA — SISTEMA DE DISEÑO
@@ -1342,7 +1342,7 @@ function crearChart(id, config){
   if(typeof Chart === 'undefined'){
     if(!_avisoChartMostrado){
       _avisoChartMostrado = true;
-      mostrarAviso('No se pudo cargar la librería de gráficos (Chart.js) desde internet. Revisa tu conexión o si la red/firewall bloquea "cdnjs.cloudflare.com". El resto del panel (KPIs, rankings, alertas, tabla) funciona con normalidad.');
+      mostrarAviso('No se pudo cargar la librería de gráficos (Chart.js) desde internet. Revisa tu conexión o si la red/firewall bloquea "cdn.jsdelivr.net". El resto del panel (KPIs, rankings, alertas, tabla) funciona con normalidad.');
     }
     return null;
   }
@@ -2032,7 +2032,7 @@ function exportarExcel(){
   const datos = datosExportables();
   if(!datos.length) return;
   if(typeof XLSX === 'undefined'){
-    mostrarAviso('No se pudo cargar la librería para exportar a Excel (XLSX) desde internet. Revisa tu conexión o si la red bloquea "cdnjs.cloudflare.com".');
+    mostrarAviso('No se pudo cargar la librería para exportar a Excel (XLSX) desde internet. Revisa tu conexión o si la red bloquea "cdn.jsdelivr.net".');
     return;
   }
   const ws = XLSX.utils.json_to_sheet(datos);
@@ -2045,7 +2045,7 @@ function exportarPDF(){
   const datos = datosExportables();
   if(!datos.length) return;
   if(typeof window.jspdf === 'undefined'){
-    mostrarAviso('No se pudo cargar la librería para exportar a PDF (jsPDF) desde internet. Revisa tu conexión o si la red bloquea "cdnjs.cloudflare.com".');
+    mostrarAviso('No se pudo cargar la librería para exportar a PDF (jsPDF) desde internet. Revisa tu conexión o si la red bloquea "cdn.jsdelivr.net".');
     return;
   }
   const { jsPDF } = window.jspdf;
