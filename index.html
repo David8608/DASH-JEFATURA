@@ -159,6 +159,36 @@ h1,h2,h3,h4{font-family:var(--font-display); margin:0; letter-spacing:-0.01em;}
 }
 .nav-item .count.alert{background:var(--bad); color:#fff;}
 
+/* ---- Carpetas (grupos de módulos) ---- */
+.nav-group{margin-bottom:2px;}
+.nav-folder{position:relative;}
+.nav-folder .chevron{
+  margin-left:auto; display:flex; align-items:center; transition:transform .2s ease; opacity:.6;
+}
+.nav-folder .chevron svg{width:13px;height:13px;}
+.nav-folder.active .chevron{transform:rotate(180deg); opacity:1;}
+.nav-folder .count{margin-left:auto;}
+.nav-folder .chevron{margin-left:6px;}
+.nav-children{
+  max-height:0; overflow:hidden; transition:max-height .28s ease;
+  padding-left:8px; border-left:1px solid rgba(255,255,255,.08); margin-left:22px;
+}
+.nav-children.open{max-height:480px;}
+.nav-subitem{
+  display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:none; background:none;
+  padding:7px 10px; border-radius:8px; cursor:pointer; font-size:12.4px; font-weight:500;
+  color:rgba(234,241,248,.62); margin:1px 0; transition:background .15s ease, color .15s ease;
+}
+.nav-subitem svg{width:14px;height:14px; flex-shrink:0; opacity:.8;}
+.nav-subitem:hover{background:rgba(255,255,255,.06); color:#fff;}
+.nav-subitem.active{color:#38C1C4; background:rgba(56,193,196,.1);}
+.nav-subitem .count{margin-left:auto; font-size:10px;}
+
+/* ---- Paneles (una carpeta = todas sus secciones apiladas visibles a la vez) ---- */
+.panel{display:none;}
+.panel.active{display:block; animation:panelIn .28s ease;}
+@keyframes panelIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
 .sidebar-foot{padding:14px 20px 20px; border-top:1px solid rgba(255,255,255,.08);}
 .upload-btn{
   display:flex; align-items:center; gap:9px; width:100%;
@@ -387,6 +417,16 @@ table.data-table tbody tr:last-child td{border-bottom:none;}
 /* Empty module state (hidden module fallback) */
 .module-hidden{display:none !important;}
 
+/* Banner de error visible (diagnóstico de fallas de carga en producción) */
+.error-banner{
+  margin:16px 32px 0; padding:14px 18px; border-radius:12px;
+  background:var(--bad-soft); border:1px solid var(--bad); color:var(--bad);
+  font-size:13px; line-height:1.5; display:flex; gap:10px; align-items:flex-start;
+}
+.error-banner strong{display:block; margin-bottom:3px;}
+.error-banner .cerrar{margin-left:auto; cursor:pointer; font-weight:600; flex-shrink:0;}
+.error-banner code{font-family:var(--font-mono); font-size:11.5px; opacity:.85;}
+
 /* footer note */
 .foot-note{
   text-align:center; padding:26px 0 6px; color:var(--ink-faint); font-size:11.5px;
@@ -489,6 +529,22 @@ table.data-table tbody tr:last-child td{border-bottom:none;}
           </button>
           <div class="filter-panel" id="panelFiltroCliente"></div>
         </div>
+        <!-- Filtro Ciudad (Novedades / Restricciones) -->
+        <div class="filter-dd">
+          <button class="filter-btn" id="btnFiltroCiudad">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/></svg>
+            <span id="labelFiltroCiudad">Ciudad</span>
+          </button>
+          <div class="filter-panel" id="panelFiltroCiudad"></div>
+        </div>
+        <!-- Filtro Motivo de Novedad -->
+        <div class="filter-dd">
+          <button class="filter-btn" id="btnFiltroMotivo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.1"/></svg>
+            <span id="labelFiltroMotivo">Motivo Novedad</span>
+          </button>
+          <div class="filter-panel" id="panelFiltroMotivo"></div>
+        </div>
         <span class="clear-filters" id="clearFilters">Limpiar filtros</span>
       </div>
 
@@ -498,6 +554,7 @@ table.data-table tbody tr:last-child td{border-bottom:none;}
       </div>
     </header>
 
+    <div id="errorBanner" class="error-banner" style="display:none;"></div>
     <div class="content" id="content"></div>
   </div>
 </div>
@@ -527,7 +584,7 @@ const UMBRAL_RIESGO = 0.90;
 const STATE = {
   raw: null,            // datos crudos { ingreso, tiempos, volumen, restriccionesAgregado, siniestros, generadoEn }
   operativa: [],        // filas combinadas cliente+mes
-  filtros: { meses: new Set(), clientes: new Set() }, // vacío = todos
+  filtros: { meses: new Set(), clientes: new Set(), ciudades: new Set(), motivos: new Set() }, // vacío = todos
   tabla: { search:'', sortCol:'mes', sortDir:'asc', page:1, pageSize:10 },
   charts: {},           // registro de instancias Chart.js para destruir/reconstruir
   tema: 'light'
@@ -593,7 +650,13 @@ function construirOperativa(data){
 /* Carga inicial desde el JSON embebido en el propio archivo HTML */
 function cargarDatosEmbebidos(){
   const el = document.getElementById('embedded-data');
-  const data = JSON.parse(el.textContent);
+  if(!el) throw new Error('No se encontró el bloque de datos embebidos (#embedded-data) en el HTML.');
+  let data;
+  try{
+    data = JSON.parse(el.textContent);
+  }catch(err){
+    throw new Error('Los datos embebidos en el archivo están corruptos o incompletos (JSON inválido). Esto suele pasar si el archivo se editó o se subió con una codificación distinta a UTF-8. Vuelve a generar/descargar el archivo original y súbelo sin modificarlo. Detalle técnico: ' + err.message);
+  }
   STATE.raw = data;
   STATE.operativa = construirOperativa(data);
 }
@@ -674,7 +737,7 @@ function procesarWorkbookCargado(workbook){
   const data = { ingreso, tiempos, volumen, restriccionesAgregado, siniestros, generadoEn: new Date().toISOString() };
   STATE.raw = data;
   STATE.operativa = construirOperativa(data);
-  STATE.filtros = { meses:new Set(), clientes:new Set() };
+  STATE.filtros = { meses:new Set(), clientes:new Set(), ciudades:new Set(), motivos:new Set() };
   STATE.tabla.page = 1;
 }
 
@@ -687,11 +750,26 @@ function operativaFiltrada(){
   );
 }
 function siniestrosFiltrados(){
-  const {meses, clientes} = STATE.filtros;
+  const {meses, clientes, ciudades, motivos} = STATE.filtros;
   return (STATE.raw.siniestros||[]).filter(s=>
     (meses.size===0 || meses.has(s.mes)) &&
-    (clientes.size===0 || clientes.has(s.proyecto))
+    (clientes.size===0 || clientes.has(s.proyecto)) &&
+    (ciudades.size===0 || ciudades.has(s.ciudad)) &&
+    (motivos.size===0 || motivos.has(s.motivo))
   );
+}
+/* Restricciones agregadas filtradas por ciudad (nunca expone datos personales).
+   El desglose "por estado" se mantiene como cifra global: los datos ya llegaron
+   agregados por privacidad y no existe forma de cruzarlos por ciudad sin
+   reconstruir información identificable, así que no se estima ni se inventa. */
+function restriccionesAgregadoFiltrado(){
+  const agg = STATE.raw.restriccionesAgregado || {total:0, porCiudad:{}, porEstado:{}};
+  const {ciudades} = STATE.filtros;
+  if(ciudades.size===0) return {...agg, estadoEsGlobal:false};
+  const porCiudad = {};
+  Object.entries(agg.porCiudad||{}).forEach(([c,n])=>{ if(ciudades.has(c)) porCiudad[c]=n; });
+  const totalFiltrado = Object.values(porCiudad).reduce((a,b)=>a+b,0);
+  return {total: totalFiltrado, porCiudad, porEstado: agg.porEstado, estadoEsGlobal:true};
 }
 function mesesPresentes(rows){
   const set = new Set(rows.map(r=>r.mes));
@@ -835,10 +913,14 @@ const ICONS = {
   chevRight:'<path d="M9 18l6-6-6-6"/>',
   smile:'<circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/>',
   route:'<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h7a3 3 0 003-3V8a3 3 0 00-3-3H8"/>',
+  folder:'<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+  chevDown:'<path d="M6 9l6 6 6-6"/>',
 };
 function icon(name, extra=''){ return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${ICONS[name]||''}</svg>`; }
 
 /* ---------- 10. NAVEGACIÓN LATERAL ---------- */
+/* Cada módulo pertenece a una carpeta. Al abrir una carpeta se muestran de una
+   sola vez, apiladas, TODAS las secciones que contiene (no una por una). */
 const SECCIONES = [
   {id:'resumen', label:'Resumen Ejecutivo', icon:'grid'},
   {id:'comportamiento', label:'Comportamiento Operativo', icon:'activity'},
@@ -853,66 +935,157 @@ const SECCIONES = [
   {id:'personal', label:'Personal (Datos Agregados)', icon:'shield'},
 ];
 
+const GRUPOS = [
+  {id:'resumen', label:'Resumen Ejecutivo', icon:'grid', carpeta:false, hijos:['resumen']},
+  {id:'operacion', label:'Operación', icon:'activity', carpeta:true, hijos:['comportamiento','cumplimiento','productividad']},
+  {id:'novedades-alertas', label:'Novedades y Alertas', icon:'alert', carpeta:true, hijos:['novedades','alertas','insights']},
+  {id:'comercial', label:'Comercial', icon:'tag', carpeta:true, hijos:['ticket','rankings']},
+  {id:'datos', label:'Datos y Personal', icon:'table', carpeta:true, hijos:['tabla','personal']},
+];
+const SECCION_A_GRUPO = {};
+GRUPOS.forEach(g=> g.hijos.forEach(h=> SECCION_A_GRUPO[h]=g.id));
+
+/* Funciones de render por sección, usadas para (re)construir los gráficos de
+   una carpeta justo cuando se abre (evita canvases de tamaño 0 por estar ocultos) */
+const RENDER_POR_SECCION = {
+  resumen: ()=>renderResumen(),
+  comportamiento: ()=>renderComportamiento(),
+  cumplimiento: ()=>renderCumplimiento(),
+  novedades: ()=>renderNovedades(),
+  productividad: ()=>renderProductividad(),
+  ticket: ()=>renderTicket(),
+  rankings: ()=>renderRankings(),
+  alertas: ()=>renderAlertas(),
+  insights: ()=>renderInsights(),
+  tabla: ()=>renderTabla(),
+  personal: ()=>renderPersonal(),
+};
+
+let GRUPO_ACTIVO = 'resumen';
+
 function renderSidebarNav(){
   const nav = document.getElementById('sidebarNav');
-  nav.innerHTML = SECCIONES.map(s=>`
-    <button class="nav-item" data-nav="${s.id}">
-      ${icon(s.icon)}<span>${s.label}</span><span class="count" id="navcount-${s.id}"></span>
-    </button>`).join('');
-  nav.querySelectorAll('.nav-item').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
+  nav.innerHTML = GRUPOS.map(g=>{
+    const etiquetasHijos = SECCIONES.filter(s=>g.hijos.includes(s.id));
+    if(!g.carpeta){
+      return `<button class="nav-item nav-folder" data-grupo="${g.id}">
+        ${icon(g.icon)}<span>${g.label}</span><span class="count" id="navcount-${g.id}"></span>
+      </button>`;
+    }
+    return `
+      <div class="nav-group">
+        <button class="nav-item nav-folder" data-grupo="${g.id}">
+          ${icon('folder')}<span>${g.label}</span>
+          <span class="count" id="navcount-${g.id}"></span>
+          <span class="chevron">${icon('chevDown')}</span>
+        </button>
+        <div class="nav-children" id="children-${g.id}">
+          ${etiquetasHijos.map(s=>`
+            <button class="nav-subitem" data-nav="${s.id}" data-grupo="${g.id}">
+              ${icon(s.icon)}<span>${s.label}</span><span class="count" id="navcount-${s.id}"></span>
+            </button>`).join('')}
+        </div>
+      </div>`;
+  }).join('');
+
+  nav.querySelectorAll('.nav-folder').forEach(btn=>{
+    btn.addEventListener('click', ()=> mostrarGrupo(btn.getAttribute('data-grupo'), true));
+  });
+  nav.querySelectorAll('.nav-subitem').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const grupo = btn.getAttribute('data-grupo');
       const id = btn.getAttribute('data-nav');
+      mostrarGrupo(grupo, false);
       const target = document.getElementById('sec-'+id);
-      if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
-      document.getElementById('sidebar').classList.remove('open');
+      if(target) setTimeout(()=> target.scrollIntoView({behavior:'smooth', block:'start'}), 60);
     });
   });
 }
 
+/* Abre una carpeta: muestra TODAS sus secciones apiladas en el panel, oculta
+   las demás carpetas, expande la lista de hijos en el sidebar y (re)dibuja
+   los gráficos que contiene (por si estaban ocultos con tamaño 0). */
+function mostrarGrupo(grupoId, irAlInicio){
+  GRUPO_ACTIVO = grupoId;
+  document.querySelectorAll('.panel').forEach(p=> p.classList.toggle('active', p.id==='panel-'+grupoId));
+  document.querySelectorAll('.nav-folder').forEach(b=> b.classList.toggle('active', b.getAttribute('data-grupo')===grupoId));
+  document.querySelectorAll('.nav-children').forEach(c=> c.classList.toggle('open', c.id==='children-'+grupoId));
+  document.querySelectorAll('.nav-subitem').forEach(b=> b.classList.remove('active'));
+
+  const grupo = GRUPOS.find(g=>g.id===grupoId);
+  if(grupo){ grupo.hijos.forEach(h=>{ const fn = RENDER_POR_SECCION[h]; if(fn){ try{ fn(); }catch(err){ console.error('Torre de Control — error mostrando '+h+':', err); } } }); }
+
+  if(irAlInicio!==false) window.scrollTo({top:0, behavior:'smooth'});
+  document.getElementById('sidebar').classList.remove('open');
+  activarScrollSpy();
+}
+
+let _tcScrollHandler = null;
 function activarScrollSpy(){
-  const items = Array.from(document.querySelectorAll('.nav-item'));
-  const secciones = SECCIONES.map(s=>document.getElementById('sec-'+s.id)).filter(Boolean);
+  const grupo = GRUPOS.find(g=>g.id===GRUPO_ACTIVO);
+  if(_tcScrollHandler) window.removeEventListener('scroll', _tcScrollHandler);
+  if(!grupo){ return; }
+  const subitems = Array.from(document.querySelectorAll(`#children-${grupo.id} .nav-subitem`));
+  if(!subitems.length) return;
+  const secciones = grupo.hijos.map(id=>document.getElementById('sec-'+id)).filter(Boolean);
   function onScroll(){
     let actualId = secciones[0] && secciones[0].id;
     const scrollPos = window.scrollY + 130;
     secciones.forEach(sec=>{ if(sec.offsetTop <= scrollPos) actualId = sec.id; });
-    items.forEach(it=> it.classList.toggle('active', 'sec-'+it.getAttribute('data-nav')===actualId));
+    subitems.forEach(it=> it.classList.toggle('active', it.getAttribute('data-nav')===actualId));
   }
+  _tcScrollHandler = onScroll;
   window.addEventListener('scroll', onScroll, {passive:true});
   onScroll();
 }
 
 /* ---------- 11. FILTROS (Mes / Cliente) ---------- */
+/* Cada filtro se define una sola vez aquí: id de botón/panel, la clave en
+   STATE.filtros, cómo obtener sus opciones disponibles y su etiqueta base. */
+const DEFINICION_FILTROS = [
+  {clave:'meses', btn:'btnFiltroMes', panel:'panelFiltroMes', label:'labelFiltroMes', base:'Mes',
+   opciones: ()=> Array.from(new Set(STATE.operativa.map(r=>r.mes))).sort((a,b)=>(MES_ORDEN[a]||99)-(MES_ORDEN[b]||99))},
+  {clave:'clientes', btn:'btnFiltroCliente', panel:'panelFiltroCliente', label:'labelFiltroCliente', base:'Cliente / Punto',
+   opciones: ()=> Array.from(new Set(STATE.operativa.map(r=>r.cliente))).sort()},
+  {clave:'ciudades', btn:'btnFiltroCiudad', panel:'panelFiltroCiudad', label:'labelFiltroCiudad', base:'Ciudad',
+   opciones: ()=>{
+     const set = new Set();
+     (STATE.raw.siniestros||[]).forEach(s=>{ if(s.ciudad) set.add(s.ciudad); });
+     Object.keys((STATE.raw.restriccionesAgregado||{}).porCiudad||{}).forEach(c=>set.add(c));
+     return Array.from(set).sort();
+   }},
+  {clave:'motivos', btn:'btnFiltroMotivo', panel:'panelFiltroMotivo', label:'labelFiltroMotivo', base:'Motivo Novedad',
+   opciones: ()=> Array.from(new Set((STATE.raw.siniestros||[]).map(s=>s.motivo).filter(Boolean))).sort()},
+];
+
 function inicializarFiltros(){
-  const mesesDisponibles = Array.from(new Set(STATE.operativa.map(r=>r.mes))).sort((a,b)=>(MES_ORDEN[a]||99)-(MES_ORDEN[b]||99));
-  const clientesDisponibles = Array.from(new Set(STATE.operativa.map(r=>r.cliente))).sort();
+  DEFINICION_FILTROS.forEach(def=>{
+    const panel = document.getElementById(def.panel);
+    const btn = document.getElementById(def.btn);
+    if(!panel || !btn) return; // filtro sin datos disponibles en esta carga (p.ej. sin ciudad/motivo)
+    const opciones = def.opciones();
+    const wrapper = btn.closest('.filter-dd');
+    if(!opciones.length){ if(wrapper) wrapper.style.display = 'none'; return; }
+    if(wrapper) wrapper.style.display = '';
 
-  const panelMes = document.getElementById('panelFiltroMes');
-  panelMes.innerHTML = mesesDisponibles.map(m=>`
-    <label class="filter-opt"><input type="checkbox" value="${m}" data-filtro="mes"> ${tituloCaso(m)}</label>
-  `).join('');
+    panel.innerHTML = opciones.map(v=>`
+      <label class="filter-opt"><input type="checkbox" value="${v}" data-filtro="${def.clave}"> ${tituloCaso(v)}</label>
+    `).join('');
+    panel.querySelectorAll('input').forEach(cb=> cb.addEventListener('change', e=>{
+      toggleFiltro(STATE.filtros[def.clave], e.target.value, e.target.checked);
+      actualizarEtiquetasFiltro(); renderTodo();
+    }));
+    btn.addEventListener('click', e=>{ e.stopPropagation(); togglePanel(def.panel); });
+  });
 
-  const panelCliente = document.getElementById('panelFiltroCliente');
-  panelCliente.innerHTML = clientesDisponibles.map(c=>`
-    <label class="filter-opt"><input type="checkbox" value="${c}" data-filtro="cliente"> ${tituloCaso(c)}</label>
-  `).join('');
-
-  panelMes.querySelectorAll('input').forEach(cb=> cb.addEventListener('change', e=>{
-    toggleFiltro(STATE.filtros.meses, e.target.value, e.target.checked);
-    actualizarEtiquetasFiltro(); renderTodo();
-  }));
-  panelCliente.querySelectorAll('input').forEach(cb=> cb.addEventListener('change', e=>{
-    toggleFiltro(STATE.filtros.clientes, e.target.value, e.target.checked);
-    actualizarEtiquetasFiltro(); renderTodo();
-  }));
-
-  document.getElementById('btnFiltroMes').addEventListener('click', e=>{ e.stopPropagation(); togglePanel('panelFiltroMes'); });
-  document.getElementById('btnFiltroCliente').addEventListener('click', e=>{ e.stopPropagation(); togglePanel('panelFiltroCliente'); });
   document.addEventListener('click', ()=>{ cerrarPaneles(); });
   document.getElementById('clearFilters').addEventListener('click', ()=>{
-    STATE.filtros.meses.clear(); STATE.filtros.clientes.clear();
-    panelMes.querySelectorAll('input').forEach(cb=>cb.checked=false);
-    panelCliente.querySelectorAll('input').forEach(cb=>cb.checked=false);
+    DEFINICION_FILTROS.forEach(def=>{
+      STATE.filtros[def.clave].clear();
+      const panel = document.getElementById(def.panel);
+      if(panel) panel.querySelectorAll('input').forEach(cb=>cb.checked=false);
+    });
     actualizarEtiquetasFiltro(); renderTodo();
   });
 }
@@ -925,16 +1098,17 @@ function togglePanel(id){
 }
 function cerrarPaneles(){ document.querySelectorAll('.filter-panel').forEach(p=>p.classList.remove('open')); }
 function actualizarEtiquetasFiltro(){
-  const {meses, clientes} = STATE.filtros;
-  const lblMes = document.getElementById('labelFiltroMes');
-  const lblCliente = document.getElementById('labelFiltroCliente');
-  const btnMes = document.getElementById('btnFiltroMes');
-  const btnCliente = document.getElementById('btnFiltroCliente');
-  lblMes.textContent = meses.size===0 ? 'Mes: Todos' : (meses.size===1 ? 'Mes: '+tituloCaso(Array.from(meses)[0]) : meses.size+' meses');
-  lblCliente.textContent = clientes.size===0 ? 'Cliente / Punto: Todos' : (clientes.size===1 ? tituloCaso(Array.from(clientes)[0]) : clientes.size+' clientes');
-  btnMes.classList.toggle('has-value', meses.size>0);
-  btnCliente.classList.toggle('has-value', clientes.size>0);
-  document.getElementById('clearFilters').classList.toggle('show', meses.size>0 || clientes.size>0);
+  let hayAlguno = false;
+  DEFINICION_FILTROS.forEach(def=>{
+    const set = STATE.filtros[def.clave];
+    const lbl = document.getElementById(def.label);
+    const btn = document.getElementById(def.btn);
+    if(!lbl || !btn) return;
+    lbl.textContent = set.size===0 ? (def.base+': Todos') : (set.size===1 ? tituloCaso(Array.from(set)[0]) : set.size+' seleccionados');
+    btn.classList.toggle('has-value', set.size>0);
+    if(set.size>0) hayAlguno = true;
+  });
+  document.getElementById('clearFilters').classList.toggle('show', hayAlguno);
 }
 
 /* ---------- 12. TEMA CLARO / OSCURO (con respaldo si localStorage no está disponible) ---------- */
@@ -964,13 +1138,18 @@ function inicializarTema(){
 /* ---------- 13. ESQUELETO ESTÁTICO DEL CONTENIDO ---------- */
 function construirEsqueleto(){
   const html = `
+    <!-- ===== CARPETA: RESUMEN EJECUTIVO ===== -->
+    <div class="panel active" id="panel-resumen">
     <section class="section" id="sec-resumen">
       <div class="section-head">
         <div class="titles"><span class="section-num">01</span><div><h2>Resumen Ejecutivo</h2><div class="section-sub">Indicadores clave del período seleccionado, con variación frente al mes anterior</div></div></div>
       </div>
       <div class="grid grid-kpi" id="kpiGrid"></div>
     </section>
+    </div>
 
+    <!-- ===== CARPETA: OPERACIÓN (Comportamiento + Cumplimiento + Productividad) ===== -->
+    <div class="panel" id="panel-operacion">
     <section class="section" id="sec-comportamiento">
       <div class="section-head">
         <div class="titles"><span class="section-num">02</span><div><h2>Comportamiento Operativo</h2><div class="section-sub">Volumen de servicios e ingresos a lo largo del período</div></div></div>
@@ -1007,9 +1186,29 @@ function construirEsqueleto(){
       </div>
     </section>
 
+    <section class="section" id="sec-productividad">
+      <div class="section-head">
+        <div class="titles"><span class="section-num">04</span><div><h2>Productividad</h2><div class="section-sub">Tiempos de entrega: promedio, mínimo, máximo y comparativo</div></div></div>
+      </div>
+      <div class="grid grid-kpi" id="productividadKpis"></div>
+      <div class="grid grid-2" style="margin-top:16px;">
+        <div class="card chart-card">
+          <div class="card-title">Tiempo promedio por cliente / punto</div>
+          <div class="chart-wrap"><canvas id="chartTiempoCliente"></canvas></div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-title">Tiempo promedio mensual</div>
+          <div class="chart-wrap"><canvas id="chartTiempoMensual"></canvas></div>
+        </div>
+      </div>
+    </section>
+    </div>
+
+    <!-- ===== CARPETA: NOVEDADES Y ALERTAS (Novedades + Centro de Alertas + Insights) ===== -->
+    <div class="panel" id="panel-novedades-alertas">
     <section class="section" id="sec-novedades">
       <div class="section-head">
-        <div class="titles"><span class="section-num">04</span><div><h2>Novedades</h2><div class="section-sub">Siniestros y causas que afectan el cumplimiento operativo</div></div></div>
+        <div class="titles"><span class="section-num">05</span><div><h2>Novedades</h2><div class="section-sub">Siniestros y causas que afectan el cumplimiento operativo</div></div></div>
       </div>
       <div class="grid grid-2">
         <div class="card chart-card">
@@ -1033,26 +1232,26 @@ function construirEsqueleto(){
       </div>
     </section>
 
-    <section class="section" id="sec-productividad">
+    <section class="section" id="sec-alertas">
       <div class="section-head">
-        <div class="titles"><span class="section-num">05</span><div><h2>Productividad</h2><div class="section-sub">Tiempos de entrega: promedio, mínimo, máximo y comparativo</div></div></div>
+        <div class="titles"><span class="section-num">06</span><div><h2>Centro de Alertas</h2><div class="section-sub">Generadas automáticamente a partir de reglas y umbrales — sin uso de IA</div></div></div>
       </div>
-      <div class="grid grid-kpi" id="productividadKpis"></div>
-      <div class="grid grid-2" style="margin-top:16px;">
-        <div class="card chart-card">
-          <div class="card-title">Tiempo promedio por cliente / punto</div>
-          <div class="chart-wrap"><canvas id="chartTiempoCliente"></canvas></div>
-        </div>
-        <div class="card chart-card">
-          <div class="card-title">Tiempo promedio mensual</div>
-          <div class="chart-wrap"><canvas id="chartTiempoMensual"></canvas></div>
-        </div>
-      </div>
+      <div class="alert-list" id="alertasLista"></div>
     </section>
 
+    <section class="section" id="sec-insights">
+      <div class="section-head">
+        <div class="titles"><span class="section-num">07</span><div><h2>Insights</h2><div class="section-sub">Conclusiones calculadas automáticamente sobre el período filtrado</div></div></div>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr; gap:12px;" id="insightsLista"></div>
+    </section>
+    </div>
+
+    <!-- ===== CARPETA: COMERCIAL (Ticket Promedio + Rankings) ===== -->
+    <div class="panel" id="panel-comercial">
     <section class="section" id="sec-ticket">
       <div class="section-head">
-        <div class="titles"><span class="section-num">06</span><div><h2>Ticket Promedio</h2><div class="section-sub">Valor per cápita por servicio entregado</div></div></div>
+        <div class="titles"><span class="section-num">08</span><div><h2>Ticket Promedio</h2><div class="section-sub">Valor per cápita por servicio entregado</div></div></div>
       </div>
       <div class="grid grid-2">
         <div class="card chart-card">
@@ -1068,7 +1267,7 @@ function construirEsqueleto(){
 
     <section class="section" id="sec-rankings">
       <div class="section-head">
-        <div class="titles"><span class="section-num">07</span><div><h2>Rankings</h2><div class="section-sub">Comparativos automáticos entre clientes, ciudades y causas de novedad</div></div></div>
+        <div class="titles"><span class="section-num">09</span><div><h2>Rankings</h2><div class="section-sub">Comparativos automáticos entre clientes, ciudades y causas de novedad</div></div></div>
       </div>
       <div class="grid grid-3">
         <div class="card"><div class="card-title">Top clientes por volumen</div><div class="rank-list" id="rankVolumen"></div></div>
@@ -1079,21 +1278,10 @@ function construirEsqueleto(){
         <div class="card"><div class="card-title">Top ticket promedio</div><div class="rank-list" id="rankTicket"></div></div>
       </div>
     </section>
+    </div>
 
-    <section class="section" id="sec-alertas">
-      <div class="section-head">
-        <div class="titles"><span class="section-num">08</span><div><h2>Centro de Alertas</h2><div class="section-sub">Generadas automáticamente a partir de reglas y umbrales — sin uso de IA</div></div></div>
-      </div>
-      <div class="alert-list" id="alertasLista"></div>
-    </section>
-
-    <section class="section" id="sec-insights">
-      <div class="section-head">
-        <div class="titles"><span class="section-num">09</span><div><h2>Insights</h2><div class="section-sub">Conclusiones calculadas automáticamente sobre el período filtrado</div></div></div>
-      </div>
-      <div class="grid" style="grid-template-columns:1fr; gap:12px;" id="insightsLista"></div>
-    </section>
-
+    <!-- ===== CARPETA: DATOS Y PERSONAL (Tabla Operativa + Personal) ===== -->
+    <div class="panel" id="panel-datos">
     <section class="section" id="sec-tabla">
       <div class="section-head">
         <div class="titles"><span class="section-num">10</span><div><h2>Tabla Operativa</h2><div class="section-sub">Detalle por cliente y mes — responde a los filtros activos</div></div></div>
@@ -1130,8 +1318,8 @@ function construirEsqueleto(){
       </div>
       <div class="foot-note">Por política de privacidad, nombres, cédulas, teléfonos, correos y observaciones personales nunca se cargan ni se muestran en este dashboard.</div>
     </section>
-
     <div class="foot-note">Torre de Control Operativa · Generado automáticamente a partir del archivo Excel proporcionado · Los datos personales fueron excluidos por diseño</div>
+    </div>
   `;
   document.getElementById('content').innerHTML = html;
 }
@@ -1147,10 +1335,21 @@ function configurarChartDefaults(){
   Chart.defaults.plugins.legend.labels.boxWidth = 8;
   Chart.defaults.plugins.legend.labels.padding = 14;
 }
+let _avisoChartMostrado = false;
 function crearChart(id, config){
   const canvas = document.getElementById(id);
   if(!canvas) return null;
-  if(STATE.charts[id]){ STATE.charts[id].destroy(); }
+  if(typeof Chart === 'undefined'){
+    if(!_avisoChartMostrado){
+      _avisoChartMostrado = true;
+      mostrarAviso('No se pudo cargar la librería de gráficos (Chart.js) desde internet. Revisa tu conexión o si la red/firewall bloquea "cdnjs.cloudflare.com". El resto del panel (KPIs, rankings, alertas, tabla) funciona con normalidad.');
+    }
+    return null;
+  }
+  // Si la carpeta que contiene este gráfico está cerrada, el canvas mide 0x0.
+  // Se omite su construcción; se reconstruye automáticamente al abrir la carpeta (ver mostrarGrupo).
+  if(canvas.offsetParent === null) return null;
+  if(STATE.charts[id]){ STATE.charts[id].destroy(); STATE.charts[id]=null; }
   const ctx = canvas.getContext('2d');
   const chart = new Chart(ctx, config);
   STATE.charts[id] = chart;
@@ -1531,7 +1730,7 @@ function renderRankings(){
 
   const ciudadesConteo = {};
   siniestros.forEach(s=>{ if(s.ciudad) ciudadesConteo[s.ciudad] = (ciudadesConteo[s.ciudad]||0)+1; });
-  const restrCiudad = (STATE.raw.restriccionesAgregado||{}).porCiudad || {};
+  const restrCiudad = restriccionesAgregadoFiltrado().porCiudad || {};
   Object.entries(restrCiudad).forEach(([c,n])=>{ ciudadesConteo[c] = (ciudadesConteo[c]||0)+n; });
   const rankCiudades = Object.entries(ciudadesConteo).map(([nombre,valor])=>({nombre,valor})).sort((a,b)=>b.valor-a.valor).slice(0,8);
   pintarRankList('rankCiudades', rankCiudades.map(x=>({...x, fmt:fmtInt})));
@@ -1694,9 +1893,10 @@ function renderInsights(){
 /* ---------- 25. MÓDULO PERSONAL (RESTRICCIONES — AGREGADO, SIN DATOS PERSONALES) ---------- */
 function renderPersonal(){
   const sec = document.getElementById('sec-personal');
-  const agg = STATE.raw.restriccionesAgregado;
-  if(!agg || !agg.total){ sec.classList.add('module-hidden'); return; }
+  const aggBase = STATE.raw.restriccionesAgregado;
+  if(!aggBase || !aggBase.total){ sec.classList.add('module-hidden'); return; }
   sec.classList.remove('module-hidden');
+  const agg = restriccionesAgregadoFiltrado();
 
   document.getElementById('personalKpis').innerHTML = `
     <div class="card kpi-card hoverable">
@@ -1708,7 +1908,7 @@ function renderPersonal(){
       <div class="kpi-icon" style="background:var(--accent-soft);color:var(--accent)">${icon('mapPin')}</div></div>
     </div>
     <div class="card kpi-card hoverable">
-      <div class="kpi-top"><div><div class="kpi-label">Activas con Restricción</div><div class="kpi-value">${fmtInt((agg.porEstado||{})['ACTIVO CON RESTRICCION']||0)}</div></div>
+      <div class="kpi-top"><div><div class="kpi-label">Activas con Restricción${agg.estadoEsGlobal?' <span style=\'font-size:10px;color:var(--ink-faint);\'>(global)</span>':''}</div><div class="kpi-value">${fmtInt((agg.porEstado||{})['ACTIVO CON RESTRICCION']||0)}</div></div>
       <div class="kpi-icon" style="background:var(--warn-soft);color:var(--warn)">${icon('alert')}</div></div>
     </div>`;
 
@@ -1831,6 +2031,10 @@ function datosExportables(){
 function exportarExcel(){
   const datos = datosExportables();
   if(!datos.length) return;
+  if(typeof XLSX === 'undefined'){
+    mostrarAviso('No se pudo cargar la librería para exportar a Excel (XLSX) desde internet. Revisa tu conexión o si la red bloquea "cdnjs.cloudflare.com".');
+    return;
+  }
   const ws = XLSX.utils.json_to_sheet(datos);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Tabla Operativa');
@@ -1840,6 +2044,10 @@ function exportarExcel(){
 function exportarPDF(){
   const datos = datosExportables();
   if(!datos.length) return;
+  if(typeof window.jspdf === 'undefined'){
+    mostrarAviso('No se pudo cargar la librería para exportar a PDF (jsPDF) desde internet. Revisa tu conexión o si la red bloquea "cdnjs.cloudflare.com".');
+    return;
+  }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape'});
   doc.setFontSize(13);
@@ -1848,6 +2056,10 @@ function exportarPDF(){
   doc.text('Generado: ' + new Date().toLocaleString('es-CO'), 14, 20);
   const head = [COLUMNAS_TABLA.map(c=>c.label)];
   const body = datos.map(d=>COLUMNAS_TABLA.map(c=>d[c.label]));
+  if(typeof doc.autoTable !== 'function'){
+    mostrarAviso('No se pudo cargar el complemento de tablas para PDF (jspdf-autotable). Intenta de nuevo o usa "Exportar Excel".');
+    return;
+  }
   doc.autoTable({ head, body, startY:26, styles:{fontSize:7.5}, headStyles:{fillColor:[18,58,94]} });
   doc.save('torre_control_tabla_operativa.pdf');
 }
@@ -1875,53 +2087,75 @@ function imprimirTabla(){
 
 /* ---------- 28. RENDER MAESTRO ---------- */
 function renderTodo(){
-  renderResumen();
-  renderComportamiento();
-  renderCumplimiento();
-  renderNovedades();
-  renderProductividad();
-  renderTicket();
-  renderRankings();
-  renderAlertas();
-  renderInsights();
-  renderTabla();
-  renderPersonal();
+  const modulos = [renderResumen, renderComportamiento, renderCumplimiento, renderNovedades,
+    renderProductividad, renderTicket, renderRankings, renderAlertas, renderInsights, renderTabla, renderPersonal];
+  modulos.forEach(fn=>{
+    try{ fn(); }
+    catch(err){ console.error('Torre de Control — error en '+fn.name+':', err); }
+  });
 
   // Contadores auxiliares en la barra lateral
-  const rows = operativaFiltrada();
-  const nc = (id,val)=>{ const el = document.getElementById('navcount-'+id); if(el) el.textContent = val; };
-  nc('tabla', rows.length || '');
-  nc('novedades', siniestrosFiltrados().length || '');
-  nc('rankings', clientesPresentes(rows).length || '');
-  const restrTotal = (STATE.raw.restriccionesAgregado||{}).total || 0;
-  nc('personal', restrTotal || '');
+  try{
+    const rows = operativaFiltrada();
+    const nc = (id,val)=>{ const el = document.getElementById('navcount-'+id); if(el) el.textContent = val; };
+    nc('tabla', rows.length || '');
+    nc('novedades', siniestrosFiltrados().length || '');
+    nc('rankings', clientesPresentes(rows).length || '');
+    const restrTotal = (STATE.raw.restriccionesAgregado||{}).total || 0;
+    nc('personal', restrTotal || '');
+  }catch(err){ console.error('Torre de Control — error en contadores:', err); }
 }
 
-/* ---------- 29. PANTALLA DE CARGA ---------- */
+/* ---------- 29. PANTALLA DE CARGA (independiente de si la app inicializa bien) ---------- */
+let _pantallaCargaOculta = false;
+function ocultarPantallaCarga(){
+  if(_pantallaCargaOculta) return;
+  _pantallaCargaOculta = true;
+  const el = document.getElementById('loading-screen');
+  if(el) el.classList.add('hidden');
+}
 function simularCarga(alTerminar){
   const fill = document.getElementById('progressFill');
   const txt = document.getElementById('progressPct');
   let pct = 0;
   const iv = setInterval(()=>{
+    if(_pantallaCargaOculta){ clearInterval(iv); return; }
     pct += Math.random()*22 + 10;
     if(pct >= 100){
       pct = 100; clearInterval(iv);
-      fill.style.width = '100%'; txt.textContent = 'Listo · 100%';
-      setTimeout(()=>{
-        document.getElementById('loading-screen').classList.add('hidden');
-        alTerminar && alTerminar();
-      }, 320);
+      if(fill) fill.style.width = '100%'; if(txt) txt.textContent = 'Listo · 100%';
+      setTimeout(()=>{ ocultarPantallaCarga(); alTerminar && alTerminar(); }, 320);
     } else {
-      fill.style.width = pct + '%';
-      txt.textContent = 'Cargando datos… ' + Math.round(pct) + '%';
+      if(fill) fill.style.width = pct + '%';
+      if(txt) txt.textContent = 'Cargando datos… ' + Math.round(pct) + '%';
     }
   }, 130);
+  // Salvaguarda: pase lo que pase con la app, la pantalla de carga nunca debe
+  // quedar trabada más de unos segundos.
+  setTimeout(ocultarPantallaCarga, 5000);
 }
+
+/* ---------- AVISOS Y ERRORES VISIBLES ---------- */
+function mostrarAviso(mensaje, esError){
+  const banner = document.getElementById('errorBanner');
+  if(!banner){ console.warn(mensaje); return; }
+  banner.style.display = 'flex';
+  banner.innerHTML = `
+    <span>${esError?'⛔':'⚠️'}</span>
+    <span><strong>${esError?'No se pudo cargar la Torre de Control':'Aviso'}</strong>${mensaje}</span>
+    <span class="cerrar" onclick="this.closest('.error-banner').style.display='none'">✕</span>`;
+}
+
 
 /* ---------- 30. CARGA DE UN NUEVO EXCEL DESDE EL NAVEGADOR ---------- */
 function manejarArchivoSeleccionado(evt){
   const file = evt.target.files && evt.target.files[0];
   if(!file) return;
+  if(typeof XLSX === 'undefined'){
+    mostrarAviso('No se pudo cargar la librería para leer archivos Excel (XLSX) desde internet. Revisa tu conexión e intenta de nuevo.');
+    evt.target.value = '';
+    return;
+  }
   const reader = new FileReader();
   reader.onload = e => {
     try{
@@ -1965,12 +2199,40 @@ function iniciarAplicacion(){
   actualizarEtiquetasFiltro();
   inicializarEventosUI();
   configurarChartDefaults();
+  mostrarGrupo('resumen', false); // carpeta abierta por defecto al cargar
   inicializarTema(); // internamente llama a renderTodo()
-  activarScrollSpy();
-  simularCarga();
 }
 
-document.addEventListener('DOMContentLoaded', iniciarAplicacion);
+document.addEventListener('DOMContentLoaded', ()=>{
+  // La animación de carga corre siempre, independientemente de si el resto
+  // de la app logra inicializar sin errores (evita que la pantalla quede
+  // trabada para siempre si algo falla).
+  simularCarga();
+  try{
+    iniciarAplicacion();
+  }catch(err){
+    console.error('Torre de Control — error de inicialización:', err);
+    ocultarPantallaCarga();
+    mostrarAviso(
+      ' ' + err.message + ' Abre la consola del navegador (F12 → Console) para más detalle, o vuelve a descargar el archivo original sin editarlo.',
+      true
+    );
+  }
+});
+
+// Red de seguridad: cualquier error no controlado que ocurra después de la
+// carga inicial (por ejemplo al interactuar con filtros o carpetas) se
+// registra en consola y se muestra de forma visible, en vez de dejar la
+// interfaz en un estado silenciosamente roto.
+window.addEventListener('error', e=>{
+  ocultarPantallaCarga();
+  console.error('Torre de Control — error no controlado:', e.error||e.message);
+});
+window.addEventListener('unhandledrejection', e=>{
+  ocultarPantallaCarga();
+  console.error('Torre de Control — promesa rechazada sin controlar:', e.reason);
+});
+
 
 </script>
 </body>
